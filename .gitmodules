@@ -1,0 +1,8 @@
+[submodule "vendor/GraphBLAS"]
+	path = vendor/GraphBLAS
+	url = git@github.com:DrTimothyAldenDavis/GraphBLAS.git
+	ignore = untracked
+[submodule "vendor/LAGraph"]
+	path = vendor/LAGraph
+	url = git@github.com:GraphBLAS/LAGraph.git
+	ignore = untracked
