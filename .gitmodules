@@ -6,3 +6,7 @@
 	path = vendor/LAGraph
 	url = git@github.com:GraphBLAS/LAGraph.git
 	ignore = untracked
+[submodule "vendor/spla"]
+	path = vendor/spla
+	url = git@github.com:SparseLinearAlgebra/spla.git
+	ignore = untracked
