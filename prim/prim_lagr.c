@@ -31,27 +31,21 @@ struct node {
     double val;
 };
 
-static struct node find_min(GrB_Vector v)
+static struct node find_min(GrB_Vector v, GrB_Index *indices, double *values)
 {
     GrB_Index n;
     gr(GrB_Vector_nvals(&n, v));
-    GrB_Index *idxs;
-    la(LAGraph_Malloc((void **)&idxs, n, sizeof(*idxs), msg));
-    double *vals;
-    la(LAGraph_Malloc((void **)&vals, n, sizeof(*vals), msg));
 
-    gr(GrB_Vector_extractTuples_FP64(idxs, vals, &n, v));
-    double val_min = vals[0];
-    GrB_Index idx_min = idxs[0];
+    gr(GrB_Vector_extractTuples_FP64(indices, values, &n, v));
+    double val_min = values[0];
+    GrB_Index idx_min = indices[0];
+
     for (GrB_Index i = 1; i < n; i++) {
-        if (vals[i] < val_min) {
-            val_min = vals[i];
-            idx_min = idxs[i];
+        if (values[i] < val_min) {
+            val_min = values[i];
+            idx_min = indices[i];
         }
     }
-
-    la(LAGraph_Free((void **)&vals, msg));
-    la(LAGraph_Free((void **)&idxs, msg));
 
     return (struct node){ .idx = idx_min, .val = val_min };
 }
@@ -83,32 +77,39 @@ static double prim(GrB_Matrix A)
     gr(GrB_Vector_setElement_BOOL(visited, true, PRIM_START_NODE));
     uint64_t visited_count = 1;
 
+    // auxiliary vectors and arrays
+    GrB_Vector to_visit, neighbors;
+    gr(GrB_Vector_new(&to_visit, GrB_FP64, n));
+    gr(GrB_Vector_new(&neighbors, GrB_FP64, n));
+
+    GrB_Index *indices;
+    la(LAGraph_Malloc((void **)&indices, n, sizeof(*indices), msg));
+    double *values;
+    la(LAGraph_Malloc((void **)&values, n, sizeof(*values), msg));
+
     double total_weight = 0;
     while (visited_count < n) {
         // `weights` with applied visited' mask
-        GrB_Vector to_visit;
-        gr(GrB_Vector_new(&to_visit, GrB_FP64, n));
         gr(GrB_Vector_assign(to_visit, visited, NULL, weights, GrB_ALL, n,
-                             GrB_DESC_C));
+                             GrB_DESC_RC));
 
         // find node with cheapest edge connecting it. "add" this edge to MST
-        struct node cheapest_node = find_min(to_visit);
+        struct node cheapest_node = find_min(to_visit, indices, values);
         total_weight += cheapest_node.val;
         gr(GrB_Vector_setElement_BOOL(visited, true, cheapest_node.idx));
         visited_count++;
 
-        gr(GrB_Vector_free(&to_visit));
-
         // find new neighbors. add them to `weights` to process later
-        GrB_Vector neighbors;
-        gr(GrB_Vector_new(&neighbors, GrB_FP64, n));
         gr(GrB_Col_extract(neighbors, NULL, NULL, A, GrB_ALL, n,
-                           cheapest_node.idx, GrB_DESC_T0));
+                           cheapest_node.idx, GrB_DESC_RT0));
         gr(GrB_Vector_eWiseAdd_BinaryOp(weights, NULL, NULL, GrB_MIN_FP64,
                                         weights, neighbors, NULL));
-        gr(GrB_Vector_free(&neighbors));
     }
 
+    la(LAGraph_Free((void **)&values, msg));
+    la(LAGraph_Free((void **)&indices, msg));
+    gr(GrB_Vector_free(&neighbors));
+    gr(GrB_Vector_free(&to_visit));
     gr(GrB_Vector_free(&visited));
     gr(GrB_Vector_free(&weights));
 
