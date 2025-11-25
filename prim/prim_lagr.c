@@ -1,28 +1,8 @@
-#include <stdlib.h>
 #include <stdio.h>
 
 #include <LAGraph.h>
 #include <GraphBLAS.h>
-
-#define info(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
-
-#define err(fmt, ...)                             \
-    do {                                          \
-        fprintf(stderr, fmt "\n", ##__VA_ARGS__); \
-        exit(EXIT_FAILURE);                       \
-    } while (0);
-
-char msg[LAGRAPH_MSG_LEN];
-
-#define LAGRAPH_CATCH(r)                                                      \
-    err("LAGraph error: (%d): file: %s, line: %d\n%s", r, __FILE__, __LINE__, \
-        msg);
-
-#define GRB_CATCH(r) \
-    err("GraphBLAS error: (%d): file: %s, line: %d", r, __FILE__, __LINE__);
-
-#define la(...) LAGRAPH_TRY(__VA_ARGS__)
-#define gr(...) GRB_TRY(__VA_ARGS__)
+#include <common.h>
 
 #define PRIM_START_NODE 0
 
@@ -37,9 +17,9 @@ static struct node find_min(GrB_Vector v, GrB_Index *indices, double *values)
     gr(GrB_Vector_nvals(&n, v));
 
     gr(GrB_Vector_extractTuples_FP64(indices, values, &n, v));
+
     double val_min = values[0];
     GrB_Index idx_min = indices[0];
-
     for (GrB_Index i = 1; i < n; i++) {
         if (values[i] < val_min) {
             val_min = values[i];
