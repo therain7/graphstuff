@@ -132,7 +132,7 @@ int main(int argc, char **argv)
 
     info("starting algo");
     float weight = prim(A, nrows, ncols);
-    info("total MST weight = %f\n", weight);
+    info("total MST weight = %.2f\n", weight);
 
     exit_spla();
     la(LAGraph_Finalize(msg));

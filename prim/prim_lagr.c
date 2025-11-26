@@ -30,7 +30,7 @@ static struct node find_min(GrB_Vector v, GrB_Index *indices, double *values)
 
 // prim's MST algo on adjacency matrix of a graph.
 // returns total weight of resulting tree
-static double prim(GrB_Matrix A)
+static float prim(GrB_Matrix A)
 {
     GrB_Index n, _cols;
     gr(GrB_Matrix_nrows(&n, A));
@@ -65,7 +65,7 @@ static double prim(GrB_Matrix A)
     double *values;
     la(LAGraph_Malloc((void **)&values, n, sizeof(*values), msg));
 
-    double total_weight = 0;
+    float total_weight = 0;
     while (visited_count < n) {
         // `weights` with applied visited' mask
         gr(GrB_Vector_assign(to_visit, visited, NULL, weights, GrB_ALL, n,
@@ -113,8 +113,8 @@ int main(int argc, char **argv)
     (void)fclose(f);
     la(LAGraph_Matrix_Print(A, LAGraph_SUMMARY, stdout, msg));
 
-    double weight = prim(A);
-    info("total MST weight = %f\n", weight);
+    float weight = prim(A);
+    info("total MST weight = %.2f\n", weight);
 
     gr(GrB_Matrix_free(&A));
     la(LAGraph_Finalize(msg));
