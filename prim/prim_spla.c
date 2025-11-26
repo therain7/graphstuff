@@ -76,7 +76,7 @@ static float prim(spla_Matrix A, uint nrows, uint ncols)
     spla_Vector neighbors = make_vector(n);
 
     float total_weight = 0;
-    while (visited_count < n) {
+    TIME(while (visited_count < n) {
         // `weights` with applied `not_visited` mask
         sp(spla_Exec_v_emult(to_visit, weights, not_visited,
                              spla_OpBinary_FIRST_FLOAT(), NULL, NULL));
@@ -95,7 +95,7 @@ static float prim(spla_Matrix A, uint nrows, uint ncols)
         weights = weights == weights0 ? weights1 : weights0;
         sp(spla_Exec_v_eadd(weights, neighbors, cur, spla_OpBinary_MIN_FLOAT(),
                             NULL, NULL));
-    }
+    });
 
     return total_weight;
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include <stdio.h>
+#include <time.h>
 
 #define info(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
 #define err(fmt, ...)                                                  \
@@ -93,3 +94,18 @@ static void grb_to_spla(spla_Matrix out, GrB_Matrix A)
     free(Ai);
 }
 #endif
+
+#define TIME(method)                                                  \
+    do {                                                              \
+        info("start measure");                                        \
+        struct timespec start;                                        \
+        clock_gettime(CLOCK_MONOTONIC_RAW, &start);                   \
+        uint64_t start_ms = start.tv_sec * 1e3 + start.tv_nsec / 1e6; \
+                                                                      \
+        method;                                                       \
+                                                                      \
+        struct timespec end;                                          \
+        clock_gettime(CLOCK_MONOTONIC_RAW, &end);                     \
+        uint64_t end_ms = end.tv_sec * 1e3 + end.tv_nsec / 1e6;       \
+        info("spent %lums", end_ms - start_ms);                       \
+    } while (0);

@@ -66,7 +66,7 @@ static float prim(GrB_Matrix A)
     la(LAGraph_Malloc((void **)&values, n, sizeof(*values), msg));
 
     float total_weight = 0;
-    while (visited_count < n) {
+    TIME(while (visited_count < n) {
         // `weights` with applied visited' mask
         gr(GrB_Vector_assign(to_visit, visited, NULL, weights, GrB_ALL, n,
                              GrB_DESC_RC));
@@ -82,7 +82,7 @@ static float prim(GrB_Matrix A)
                            cheapest_node.idx, GrB_DESC_RT0));
         gr(GrB_Vector_eWiseAdd_BinaryOp(weights, NULL, NULL, GrB_MIN_FP64,
                                         weights, neighbors, NULL));
-    }
+    });
 
     la(LAGraph_Free((void **)&values, msg));
     la(LAGraph_Free((void **)&indices, msg));
