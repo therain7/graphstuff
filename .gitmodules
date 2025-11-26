@@ -1,12 +1,12 @@
 [submodule "vendor/GraphBLAS"]
 	path = vendor/GraphBLAS
-	url = git@github.com:DrTimothyAldenDavis/GraphBLAS.git
+	url = https://github.com/DrTimothyAldenDavis/GraphBLAS
 	ignore = untracked
 [submodule "vendor/LAGraph"]
 	path = vendor/LAGraph
-	url = git@github.com:GraphBLAS/LAGraph.git
+	url = https://github.com/GraphBLAS/LAGraph
 	ignore = untracked
 [submodule "vendor/spla"]
 	path = vendor/spla
-	url = git@github.com:SparseLinearAlgebra/spla.git
+	url = https://github.com/SparseLinearAlgebra/spla
 	ignore = all
