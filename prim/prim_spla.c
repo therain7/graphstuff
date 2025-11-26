@@ -1,10 +1,6 @@
-#include <stdio.h>
-#include <float.h>
-
 #include <LAGraph.h>
 #include <GraphBLAS.h>
 #include <spla.h>
-
 #include <common.h>
 
 #define FILL_VALUE INFINITY

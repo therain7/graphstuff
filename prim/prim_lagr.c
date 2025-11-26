@@ -1,5 +1,3 @@
-#include <stdio.h>
-
 #include <LAGraph.h>
 #include <GraphBLAS.h>
 #include <common.h>

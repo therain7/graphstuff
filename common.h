@@ -1,4 +1,5 @@
 #pragma once
+#include <stdio.h>
 
 #define info(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
 #define err(fmt, ...)                                                  \

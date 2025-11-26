@@ -11,7 +11,7 @@ LGR_DIST := $(LGR_ROOT)/dist
 SPLA_ROOT := vendor/spla
 SPLA_DIST := $(SPLA_ROOT)/build
 
-BINS := prim_lagr prim_spla
+BINS := prim_lagr prim_spla msbfs_lagr
 
 .PHONY: build vendor
 build: $(addprefix $(BLD)/, $(BINS))
@@ -38,7 +38,8 @@ $(SPLA_DIST):
 LD_GRB_LGR := \
 	-I$(GRB_DIST)/include/suitesparse -L$(GRB_DIST)/lib64 -lgraphblas \
 	-Wl,-rpath=$(realpath $(GRB_DIST)/lib64) \
-	-I$(LGR_DIST)/include/suitesparse -L$(LGR_DIST)/lib64 -l:liblagraph.a -lgomp 
+	-I$(LGR_DIST)/include/suitesparse -L$(LGR_DIST)/lib64 \
+	-l:liblagraphx.a -l:liblagraph.a -lgomp
 
 LD_SPLA := \
 	-I$(SPLA_ROOT)/include -L$(SPLA_DIST) -lspla_x64 \
@@ -49,3 +50,6 @@ $(BLD)/prim_lagr: prim/prim_lagr.c $(GRB_DIST) $(LGR_DIST)
 
 $(BLD)/prim_spla: prim/prim_spla.c $(SPLA_DIST) $(GRB_DIST) $(LGR_DIST)
 	$(CC) $(CFLAGS) $< -o $@ $(LD_GRB_LGR) $(LD_SPLA)
+
+$(BLD)/msbfs_lagr: msbfs/msbfs_lagr.c $(GRB_DIST) $(LGR_DIST)
+	$(CC) $(CFLAGS) $< -o $@ $(LD_GRB_LGR)
