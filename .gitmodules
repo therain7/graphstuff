@@ -9,4 +9,4 @@
 [submodule "vendor/spla"]
 	path = vendor/spla
 	url = git@github.com:SparseLinearAlgebra/spla.git
-	ignore = untracked
+	ignore = all

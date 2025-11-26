@@ -28,6 +28,9 @@ $(LGR_DIST): $(GRB_DIST)
 	$(MAKE) -C $(LGR_ROOT) install
 
 $(SPLA_DIST):
+	git -C $(SPLA_ROOT) reset --hard origin
+	git -C $(SPLA_ROOT) quiltimport --patches ../spla.patches
+
 	cmake -S $(SPLA_ROOT) -B $(SPLA_DIST) -DCMAKE_BUILD_TYPE=Release \
 		-DSPLA_BUILD_OPENCL=YES -DSPLA_BUILD_TESTS=NO -DSPLA_BUILD_EXAMPLES=NO
 	cmake --build $(SPLA_DIST) -j$(JOBS)

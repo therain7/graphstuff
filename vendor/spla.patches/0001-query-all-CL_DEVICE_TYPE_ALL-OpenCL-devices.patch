@@ -1,0 +1,26 @@
+From 4abd7be37f84438be452ae135df43af2a8606df4 Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Wed, 26 Nov 2025 12:39:50 +0300
+Subject: [PATCH 1/5] query all `CL_DEVICE_TYPE_ALL` OpenCL devices
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ src/opencl/cl_accelerator.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/opencl/cl_accelerator.cpp b/src/opencl/cl_accelerator.cpp
+index 6a7a051..0310fab 100644
+--- a/src/opencl/cl_accelerator.cpp
++++ b/src/opencl/cl_accelerator.cpp
+@@ -88,7 +88,7 @@ namespace spla {
+     }
+     Status CLAccelerator::set_device(int index) {
+         std::vector<cl::Device> available_devices;
+-        m_platform.getDevices(CL_DEVICE_TYPE_GPU, &available_devices);
++        m_platform.getDevices(CL_DEVICE_TYPE_ALL, &available_devices);
+ 
+         if (available_devices.empty()) {
+             LOG_MSG(Status::DeviceNotFound, "no device in selected platform, check your OpenCL runtime");
+-- 
+2.51.0
+

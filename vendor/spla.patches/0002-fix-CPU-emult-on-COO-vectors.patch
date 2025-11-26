@@ -1,0 +1,42 @@
+From 3d15297e612916c3dcb77bd5c427910cba5c59c9 Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Wed, 26 Nov 2025 12:39:52 +0300
+Subject: [PATCH 2/5] fix CPU `emult` on COO vectors
+
+do not attempt to perform operation on `fill_value`
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ src/cpu/cpu_v_emult.hpp | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/src/cpu/cpu_v_emult.hpp b/src/cpu/cpu_v_emult.hpp
+index a414ccb..f4eecc8 100644
+--- a/src/cpu/cpu_v_emult.hpp
++++ b/src/cpu/cpu_v_emult.hpp
+@@ -88,6 +88,7 @@ namespace spla {
+             const CpuCooVec<T>* p_u      = u->template get<CpuCooVec<T>>();
+             const CpuCooVec<T>* p_v      = v->template get<CpuCooVec<T>>();
+             const auto&         function = op->function;
++            const auto          skip     = v->get_fill_value();
+ 
+             assert(p_r->Ai.empty());
+             assert(p_r->Ax.empty());
+@@ -103,9 +104,11 @@ namespace spla {
+                 } else if (p_v->Ai[v_iter] < p_u->Ai[u_iter]) {
+                     v_iter += 1;
+                 } else {
+-                    p_r->values += 1;
+-                    p_r->Ai.push_back(p_u->Ai[u_iter]);
+-                    p_r->Ax.push_back(function(p_u->Ax[u_iter], p_v->Ax[v_iter]));
++                    if (p_v->Ax[v_iter] != skip && p_u->Ax[u_iter] != skip) {
++                        p_r->values += 1;
++                        p_r->Ai.push_back(p_u->Ai[u_iter]);
++                        p_r->Ax.push_back(function(p_u->Ax[u_iter], p_v->Ax[v_iter]));
++                    }
+                     u_iter += 1;
+                     v_iter += 1;
+                 }
+-- 
+2.51.0
+

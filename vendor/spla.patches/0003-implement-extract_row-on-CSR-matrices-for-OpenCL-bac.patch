@@ -1,0 +1,209 @@
+From 37576bdee9c2544d6b4e4ca2f5fcf1bd8bea63da Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Wed, 26 Nov 2025 19:42:14 +0300
+Subject: [PATCH 3/5] implement `extract_row` on CSR matrices for OpenCL
+ backend
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ src/opencl/cl_algo_registry.cpp             |  6 ++
+ src/opencl/cl_format_csr.hpp                |  4 +-
+ src/opencl/cl_m_extract_row.hpp             | 88 +++++++++++++++++++++
+ src/opencl/generated/auto_m_extract_row.hpp | 22 ++++++
+ src/opencl/kernels/m_extract_row.cl         | 13 +++
+ 5 files changed, 131 insertions(+), 2 deletions(-)
+ create mode 100644 src/opencl/cl_m_extract_row.hpp
+ create mode 100644 src/opencl/generated/auto_m_extract_row.hpp
+ create mode 100644 src/opencl/kernels/m_extract_row.cl
+
+diff --git a/src/opencl/cl_algo_registry.cpp b/src/opencl/cl_algo_registry.cpp
+index 6572657..3740203 100644
+--- a/src/opencl/cl_algo_registry.cpp
++++ b/src/opencl/cl_algo_registry.cpp
+@@ -30,6 +30,7 @@
+ #include <core/registry.hpp>
+ #include <core/top.hpp>
+ 
++#include <opencl/cl_m_extract_row.hpp>
+ #include <opencl/cl_m_reduce.hpp>
+ #include <opencl/cl_mxmT_masked.hpp>
+ #include <opencl/cl_mxv.hpp>
+@@ -93,6 +94,11 @@ namespace spla {
+         g_registry->add(MAKE_KEY_CL_0("mxmT_masked", INT), std::make_shared<Algo_mxmT_masked_cl<T_INT>>());
+         g_registry->add(MAKE_KEY_CL_0("mxmT_masked", UINT), std::make_shared<Algo_mxmT_masked_cl<T_UINT>>());
+         g_registry->add(MAKE_KEY_CL_0("mxmT_masked", FLOAT), std::make_shared<Algo_mxmT_masked_cl<T_FLOAT>>());
++
++        // algorthm m_extract_row
++        g_registry->add(MAKE_KEY_CL_0("m_extract_row", INT), std::make_shared<Algo_m_extract_row_cl<T_INT>>());
++        g_registry->add(MAKE_KEY_CL_0("m_extract_row", UINT), std::make_shared<Algo_m_extract_row_cl<T_UINT>>());
++        g_registry->add(MAKE_KEY_CL_0("m_extract_row", FLOAT), std::make_shared<Algo_m_extract_row_cl<T_FLOAT>>());
+     }
+ 
+ }// namespace spla
+diff --git a/src/opencl/cl_format_csr.hpp b/src/opencl/cl_format_csr.hpp
+index ec6e105..4ca6d28 100644
+--- a/src/opencl/cl_format_csr.hpp
++++ b/src/opencl/cl_format_csr.hpp
+@@ -45,7 +45,7 @@ namespace spla {
+                      const T*    Ax,
+                      CLCsr<T>&   storage) {
+         auto&      ctx   = get_acc_cl()->get_context();
+-        const auto flags = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR;
++        const auto flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY | CL_MEM_COPY_HOST_PTR;
+ 
+         cl::Buffer cl_Ap(ctx, flags, (n_rows + 1) * sizeof(uint), (void*) Ap);
+         cl::Buffer cl_Aj(ctx, flags, n_values * sizeof(uint), (void*) Aj);
+@@ -63,7 +63,7 @@ namespace spla {
+                        std::size_t n_values,
+                        CLCsr<T>&   storage) {
+         auto&      ctx   = get_acc_cl()->get_context();
+-        const auto flags = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
++        const auto flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
+ 
+         cl::Buffer cl_Ap(ctx, flags, (n_rows + 1) * sizeof(uint));
+         cl::Buffer cl_Aj(ctx, flags, n_values * sizeof(uint));
+diff --git a/src/opencl/cl_m_extract_row.hpp b/src/opencl/cl_m_extract_row.hpp
+new file mode 100644
+index 0000000..5073df4
+--- /dev/null
++++ b/src/opencl/cl_m_extract_row.hpp
+@@ -0,0 +1,88 @@
++#ifndef SPLA_CL_M_EXTRACT_ROW_HPP
++#define SPLA_CL_M_EXTRACT_ROW_HPP
++
++#include <schedule/schedule_tasks.hpp>
++
++#include <core/dispatcher.hpp>
++#include <core/registry.hpp>
++#include <core/tmatrix.hpp>
++#include <core/top.hpp>
++#include <core/tscalar.hpp>
++#include <core/ttype.hpp>
++#include <core/tvector.hpp>
++
++#include <opencl/cl_counter.hpp>
++#include <opencl/cl_debug.hpp>
++#include <opencl/cl_formats.hpp>
++#include <opencl/cl_program_builder.hpp>
++#include <opencl/generated/auto_m_extract_row.hpp>
++
++namespace spla {
++
++    template<typename T>
++    class Algo_m_extract_row_cl final : public RegistryAlgo {
++    public:
++        ~Algo_m_extract_row_cl() override = default;
++
++        std::string get_name() override {
++            return "m_extract_row";
++        }
++
++        std::string get_description() override {
++            return "opencl extract row from matrix";
++        }
++
++        Status execute(const DispatchContext& ctx) override {
++            auto t = ctx.task.template cast_safe<ScheduleTask_m_extract_row>();
++
++            ref_ptr<TVector<T>> r = t->r.template cast_safe<TVector<T>>();
++            ref_ptr<TMatrix<T>> M = t->M.template cast_safe<TMatrix<T>>();
++
++            // TODO: op is not implemented
++            assert(!t->op_apply);
++
++            r->validate_wd(FormatVector::AccDense);
++            M->validate_rw(FormatMatrix::AccCsr);
++
++            auto* p_cl_r   = r->template get<CLDenseVec<T>>();
++            auto* p_cl_M   = M->template get<CLCsr<T>>();
++            auto* p_cl_acc = get_acc_cl();
++            auto& queue    = p_cl_acc->get_queue_default();
++
++            uint row_bounds[2];
++            queue.enqueueReadBuffer(p_cl_M->Ap, true, t->index * sizeof(uint), 2 * sizeof(uint), row_bounds);
++            queue.finish();
++
++            std::shared_ptr<CLProgram> program;
++            ensure_kernel(program);
++
++            auto kernel = program->make_kernel("extract_row");
++            kernel.setArg(0, p_cl_r->Ax);
++            kernel.setArg(1, p_cl_M->Ax);
++            kernel.setArg(2, p_cl_M->Aj);
++            kernel.setArg(3, row_bounds[1]);
++
++            const uint  n = row_bounds[1] - row_bounds[0] - 1;
++            cl::NDRange global(p_cl_acc->get_default_wgs() * div_up_clamp(n, p_cl_acc->get_default_wgs(), 1u, 1024u));
++            cl::NDRange local(p_cl_acc->get_default_wgs());
++
++            queue.enqueueNDRangeKernel(kernel, cl::NDRange(row_bounds[0]), global, local);
++            return Status::Ok;
++        }
++
++
++    private:
++        void ensure_kernel(std::shared_ptr<CLProgram>& program) {
++            CLProgramBuilder program_builder;
++            program_builder
++                    .set_name("m_extract_row")
++                    .add_type("TYPE", get_ttype<T>().template as<Type>())
++                    .set_source(source_m_extract_row)
++                    .acquire();
++            program = program_builder.get_program();
++        }
++    };
++
++}// namespace spla
++
++#endif//SPLA_CL_M_EXTRACT_ROW_HPP
+diff --git a/src/opencl/generated/auto_m_extract_row.hpp b/src/opencl/generated/auto_m_extract_row.hpp
+new file mode 100644
+index 0000000..b94d846
+--- /dev/null
++++ b/src/opencl/generated/auto_m_extract_row.hpp
+@@ -0,0 +1,22 @@
++////////////////////////////////////////////////////////////////////
++// Copyright (c) 2021 - 2025 SparseLinearAlgebra
++// Autogenerated file, do not modify
++////////////////////////////////////////////////////////////////////
++
++#pragma once
++
++static const char source_m_extract_row[] = R"(
++
++__kernel void extract_row(__global TYPE*       g_rx,
++                          __global const TYPE* g_Ax,
++                          __global const uint* g_Aj,
++                          const uint           n) {
++    const uint gid   = get_global_id(0);
++    const uint gsize = get_global_size(0);
++
++    for (uint i = gid; i < n; i += gsize) {
++        g_rx[g_Aj[i]] = g_Ax[i];
++    }
++}
++
++)";
+\ No newline at end of file
+diff --git a/src/opencl/kernels/m_extract_row.cl b/src/opencl/kernels/m_extract_row.cl
+new file mode 100644
+index 0000000..c646154
+--- /dev/null
++++ b/src/opencl/kernels/m_extract_row.cl
+@@ -0,0 +1,13 @@
++#include "common_def.cl"
++
++__kernel void extract_row(__global TYPE*       g_rx,
++                          __global const TYPE* g_Ax,
++                          __global const uint* g_Aj,
++                          const uint           n) {
++    const uint gid   = get_global_id(0);
++    const uint gsize = get_global_size(0);
++
++    for (uint i = gid; i < n; i += gsize) {
++        g_rx[g_Aj[i]] = g_Ax[i];
++    }
++}
+-- 
+2.51.0
+

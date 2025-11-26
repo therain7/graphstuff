@@ -1,0 +1,5 @@
+0001-query-all-CL_DEVICE_TYPE_ALL-OpenCL-devices.patch
+0002-fix-CPU-emult-on-COO-vectors.patch
+0003-implement-extract_row-on-CSR-matrices-for-OpenCL-bac.patch
+0004-implement-emult-on-dense-vectors-for-OpenCL-backend.patch
+0005-implement-set_float-for-dense-OpenCL-vectors.patch

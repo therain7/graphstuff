@@ -1,0 +1,208 @@
+From 3fa63b7e69b80967fd08e7343d5520887cd629b8 Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Wed, 26 Nov 2025 17:16:11 +0300
+Subject: [PATCH 4/5] implement `emult` on dense vectors for OpenCL backend
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ src/opencl/cl_algo_registry.cpp            |   6 ++
+ src/opencl/cl_v_emult.hpp                  | 101 +++++++++++++++++++++
+ src/opencl/generated/auto_vector_emult.hpp |  27 ++++++
+ src/opencl/kernels/vector_emult.cl         |  18 ++++
+ 4 files changed, 152 insertions(+)
+ create mode 100644 src/opencl/cl_v_emult.hpp
+ create mode 100644 src/opencl/generated/auto_vector_emult.hpp
+ create mode 100644 src/opencl/kernels/vector_emult.cl
+
+diff --git a/src/opencl/cl_algo_registry.cpp b/src/opencl/cl_algo_registry.cpp
+index 3740203..8905e08 100644
+--- a/src/opencl/cl_algo_registry.cpp
++++ b/src/opencl/cl_algo_registry.cpp
+@@ -38,6 +38,7 @@
+ #include <opencl/cl_v_count_mf.hpp>
+ #include <opencl/cl_v_eadd.hpp>
+ #include <opencl/cl_v_eadd_fdb.hpp>
++#include <opencl/cl_v_emult.hpp>
+ #include <opencl/cl_v_map.hpp>
+ #include <opencl/cl_v_reduce.hpp>
+ #include <opencl/cl_vxm.hpp>
+@@ -99,6 +100,11 @@ namespace spla {
+         g_registry->add(MAKE_KEY_CL_0("m_extract_row", INT), std::make_shared<Algo_m_extract_row_cl<T_INT>>());
+         g_registry->add(MAKE_KEY_CL_0("m_extract_row", UINT), std::make_shared<Algo_m_extract_row_cl<T_UINT>>());
+         g_registry->add(MAKE_KEY_CL_0("m_extract_row", FLOAT), std::make_shared<Algo_m_extract_row_cl<T_FLOAT>>());
++
++        // algorthm v_emult
++        g_registry->add(MAKE_KEY_CL_0("v_emult", INT), std::make_shared<Algo_v_emult_cl<T_INT>>());
++        g_registry->add(MAKE_KEY_CL_0("v_emult", UINT), std::make_shared<Algo_v_emult_cl<T_UINT>>());
++        g_registry->add(MAKE_KEY_CL_0("v_emult", FLOAT), std::make_shared<Algo_v_emult_cl<T_FLOAT>>());
+     }
+ 
+ }// namespace spla
+diff --git a/src/opencl/cl_v_emult.hpp b/src/opencl/cl_v_emult.hpp
+new file mode 100644
+index 0000000..8bae515
+--- /dev/null
++++ b/src/opencl/cl_v_emult.hpp
+@@ -0,0 +1,101 @@
++#ifndef SPLA_CL_VECTOR_EMULT_HPP
++#define SPLA_CL_VECTOR_EMULT_HPP
++
++#include <schedule/schedule_tasks.hpp>
++
++#include <core/dispatcher.hpp>
++#include <core/registry.hpp>
++#include <core/top.hpp>
++#include <core/tscalar.hpp>
++#include <core/ttype.hpp>
++#include <core/tvector.hpp>
++
++#include <opencl/cl_counter.hpp>
++#include <opencl/cl_fill.hpp>
++#include <opencl/cl_formats.hpp>
++#include <opencl/generated/auto_vector_emult.hpp>
++
++namespace spla {
++
++    template<typename T>
++    class Algo_v_emult_cl final : public RegistryAlgo {
++    public:
++        ~Algo_v_emult_cl() override = default;
++
++        std::string get_name() override {
++            return "v_emult";
++        }
++
++        std::string get_description() override {
++            return "parallel vector element-wise mult on opencl device";
++        }
++
++        Status execute(const DispatchContext& ctx) override {
++            auto                t = ctx.task.template cast_safe<ScheduleTask_v_emult>();
++            ref_ptr<TVector<T>> u = t->u.template cast_safe<TVector<T>>();
++            ref_ptr<TVector<T>> v = t->v.template cast_safe<TVector<T>>();
++
++            if (u->is_valid(FormatVector::AccDense) && v->is_valid(FormatVector::AccDense)) {
++                return execute_dn2dn(ctx);
++            }
++
++            return execute_dn2dn(ctx);
++        }
++
++    private:
++        Status execute_dn2dn(const DispatchContext& ctx) {
++            TIME_PROFILE_SCOPE("cl/vector_emult_dn2dn");
++
++            auto                        t  = ctx.task.template cast_safe<ScheduleTask_v_emult>();
++            ref_ptr<TVector<T>>         r  = t->r.template cast_safe<TVector<T>>();
++            ref_ptr<TVector<T>>         u  = t->u.template cast_safe<TVector<T>>();
++            ref_ptr<TVector<T>>         v  = t->v.template cast_safe<TVector<T>>();
++            ref_ptr<TOpBinary<T, T, T>> op = t->op.template cast_safe<TOpBinary<T, T, T>>();
++
++            std::shared_ptr<CLProgram> program;
++            if (!ensure_kernel(op, program)) return Status::CompilationError;
++
++            r->validate_wd(FormatVector::AccDense);
++            u->validate_rw(FormatVector::AccDense);
++            v->validate_rw(FormatVector::AccDense);
++
++            auto*       p_cl_r   = r->template get<CLDenseVec<T>>();
++            const auto* p_cl_u   = u->template get<CLDenseVec<T>>();
++            const auto* p_cl_v   = v->template get<CLDenseVec<T>>();
++            auto*       p_cl_acc = get_acc_cl();
++            auto&       queue    = p_cl_acc->get_queue_default();
++
++            const uint n = r->get_n_rows();
++
++            auto kernel = program->make_kernel("dense_to_dense");
++            kernel.setArg(0, p_cl_r->Ax);
++            kernel.setArg(1, p_cl_u->Ax);
++            kernel.setArg(2, p_cl_v->Ax);
++            kernel.setArg(3, n);
++            kernel.setArg(4, v->get_fill_value());
++
++            cl::NDRange global(p_cl_acc->get_default_wgs() * div_up_clamp(n, p_cl_acc->get_default_wgs(), 1u, 1024u));
++            cl::NDRange local(p_cl_acc->get_default_wgs());
++
++            queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local);
++            return Status::Ok;
++        }
++
++        bool ensure_kernel(const ref_ptr<TOpBinary<T, T, T>>& op, std::shared_ptr<CLProgram>& program) {
++            CLProgramBuilder program_builder;
++            program_builder
++                    .set_name("vector_emult")
++                    .add_type("TYPE", get_ttype<T>().template as<Type>())
++                    .add_op("OP_BINARY", op.template as<OpBinary>())
++                    .set_source(source_vector_emult)
++                    .acquire();
++
++            program = program_builder.get_program();
++
++            return true;
++        }
++    };
++
++}// namespace spla
++
++#endif
+diff --git a/src/opencl/generated/auto_vector_emult.hpp b/src/opencl/generated/auto_vector_emult.hpp
+new file mode 100644
+index 0000000..ae5dfa7
+--- /dev/null
++++ b/src/opencl/generated/auto_vector_emult.hpp
+@@ -0,0 +1,27 @@
++////////////////////////////////////////////////////////////////////
++// Copyright (c) 2021 - 2025 SparseLinearAlgebra
++// Autogenerated file, do not modify
++////////////////////////////////////////////////////////////////////
++
++#pragma once
++
++static const char source_vector_emult[] = R"(
++
++__kernel void dense_to_dense(__global TYPE*       g_rx,
++                             __global const TYPE* g_ux,
++                             __global const TYPE* g_vx,
++                             const uint           n,
++                             const TYPE           fill) {
++    const uint gid   = get_global_id(0);
++    const uint gsize = get_global_size(0);
++
++    for (uint i = gid; i < n; i += gsize) {
++        if (g_ux[i] == fill || g_vx[i] == fill) {
++            g_rx[i] = fill;
++        } else {
++            g_rx[i] = OP_BINARY(g_ux[i], g_vx[i]);
++        }
++    }
++}
++
++)";
+\ No newline at end of file
+diff --git a/src/opencl/kernels/vector_emult.cl b/src/opencl/kernels/vector_emult.cl
+new file mode 100644
+index 0000000..fb7cb74
+--- /dev/null
++++ b/src/opencl/kernels/vector_emult.cl
+@@ -0,0 +1,18 @@
++#include "common_def.cl"
++
++__kernel void dense_to_dense(__global TYPE*       g_rx,
++                             __global const TYPE* g_ux,
++                             __global const TYPE* g_vx,
++                             const uint           n,
++                             const TYPE           fill) {
++    const uint gid   = get_global_id(0);
++    const uint gsize = get_global_size(0);
++
++    for (uint i = gid; i < n; i += gsize) {
++        if (g_ux[i] == fill || g_vx[i] == fill) {
++            g_rx[i] = fill;
++        } else {
++            g_rx[i] = OP_BINARY(g_ux[i], g_vx[i]);
++        }
++    }
++}
+-- 
+2.51.0
+

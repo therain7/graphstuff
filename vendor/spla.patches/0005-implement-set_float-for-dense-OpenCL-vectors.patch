@@ -1,0 +1,54 @@
+From 5cea7a54bf53b1c5f3911a9641d45239a989f34b Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Wed, 26 Nov 2025 18:31:13 +0300
+Subject: [PATCH 5/5] implement `set_float` for dense OpenCL vectors
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ src/core/tvector.hpp               | 7 +++++++
+ src/opencl/cl_format_dense_vec.hpp | 4 ++--
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/core/tvector.hpp b/src/core/tvector.hpp
+index af3e5c7..1537bdc 100644
+--- a/src/core/tvector.hpp
++++ b/src/core/tvector.hpp
+@@ -181,6 +181,13 @@ namespace spla {
+     }
+     template<typename T>
+     Status TVector<T>::set_float(uint row_id, float value) {
++        if (is_valid(FormatVector::AccDense)) {
++            auto& buf   = get<CLDenseVec<T>>()->Ax;
++            auto& queue = get_acc_cl()->get_queue_default();
++            queue.enqueueWriteBuffer(buf, true, row_id * sizeof(T), sizeof(T), &value);
++            return Status::Ok;
++        }
++
+         if (is_valid(FormatVector::CpuDense)) {
+             validate_rwd(FormatVector::CpuDense);
+             get<CpuDenseVec<T>>()->Ax[row_id] = static_cast<T>(value);
+diff --git a/src/opencl/cl_format_dense_vec.hpp b/src/opencl/cl_format_dense_vec.hpp
+index 563eac5..022868b 100644
+--- a/src/opencl/cl_format_dense_vec.hpp
++++ b/src/opencl/cl_format_dense_vec.hpp
+@@ -46,7 +46,7 @@ namespace spla {
+     void cl_dense_vec_resize(const std::size_t n_rows,
+                              CLDenseVec<T>&    storage) {
+         const std::size_t buffer_size = n_rows * sizeof(T);
+-        const auto        flags       = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
++        const auto        flags       = CL_MEM_READ_WRITE | CL_MEM_HOST_WRITE_ONLY;
+ 
+         cl::Buffer buffer(get_acc_cl()->get_context(), flags, buffer_size);
+         storage.Ax = std::move(buffer);
+@@ -66,7 +66,7 @@ namespace spla {
+         assert(values);
+ 
+         const std::size_t buffer_size = n_rows * sizeof(T);
+-        const auto        flags       = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR;
++        const auto        flags       = CL_MEM_READ_WRITE | CL_MEM_HOST_WRITE_ONLY | CL_MEM_COPY_HOST_PTR;
+ 
+         cl::Buffer buffer(get_acc_cl()->get_context(), flags, buffer_size, (void*) values);
+         storage.Ax = std::move(buffer);
+-- 
+2.51.0
+
