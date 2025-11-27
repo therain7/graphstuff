@@ -45,11 +45,11 @@ LD_SPLA := \
 	-I$(SPLA_ROOT)/include -L$(SPLA_DIST) -lspla_x64 \
 	-Wl,-rpath=$(shell realpath $(SPLA_DIST))
 
-$(BLD)/prim_lagr: prim/prim_lagr.c $(GRB_DIST) $(LGR_DIST)
+$(BLD)/prim_lagr: prim/lagr.c $(GRB_DIST) $(LGR_DIST)
 	$(CC) $(CFLAGS) $< -o $@ $(LD_GRB_LGR)
 
-$(BLD)/prim_spla: prim/prim_spla.c $(SPLA_DIST) $(GRB_DIST) $(LGR_DIST)
+$(BLD)/prim_spla: prim/spla.c $(SPLA_DIST) $(GRB_DIST) $(LGR_DIST)
 	$(CC) $(CFLAGS) $< -o $@ $(LD_GRB_LGR) $(LD_SPLA)
 
-$(BLD)/msbfs_lagr: msbfs/msbfs_lagr.c $(GRB_DIST) $(LGR_DIST)
+$(BLD)/msbfs_lagr: msbfs/lagr.c $(GRB_DIST) $(LGR_DIST)
 	$(CC) $(CFLAGS) $< -o $@ $(LD_GRB_LGR)
