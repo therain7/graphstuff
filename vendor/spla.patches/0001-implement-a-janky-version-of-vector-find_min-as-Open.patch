@@ -1,0 +1,321 @@
+From d32b285388ffd4eb806947436af5d4afa8b75a14 Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Thu, 27 Nov 2025 05:01:06 +0300
+Subject: [PATCH] implement a janky version of vector find_min as OpenCL kernel
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ include/spla.h                           |  1 +
+ include/spla/exec.hpp                    |  8 +++
+ src/binding/c_exec.cpp                   |  6 +-
+ src/exec.cpp                             | 16 ++++-
+ src/opencl/cl_algo_registry.cpp          |  4 ++
+ src/opencl/cl_v_find_min.hpp             | 75 ++++++++++++++++++++++++
+ src/opencl/generated/auto_v_find_min.hpp | 31 ++++++++++
+ src/opencl/kernels/v_find_min.cl         | 22 +++++++
+ src/schedule/schedule_tasks.cpp          | 21 +++++++
+ src/schedule/schedule_tasks.hpp          | 15 +++++
+ 10 files changed, 197 insertions(+), 2 deletions(-)
+ create mode 100644 src/opencl/cl_v_find_min.hpp
+ create mode 100644 src/opencl/generated/auto_v_find_min.hpp
+ create mode 100644 src/opencl/kernels/v_find_min.cl
+
+diff --git a/include/spla.h b/include/spla.h
+index 907865f..1415ecd 100644
+--- a/include/spla.h
++++ b/include/spla.h
+@@ -386,6 +386,7 @@ SPLA_API spla_Status spla_Exec_v_assign_masked(spla_Vector r, spla_Vector mask,
+ SPLA_API spla_Status spla_Exec_v_map(spla_Vector r, spla_Vector v, spla_OpUnary op, spla_Descriptor desc, spla_ScheduleTask* task);
+ SPLA_API spla_Status spla_Exec_v_reduce(spla_Scalar r, spla_Scalar s, spla_Vector v, spla_OpBinary op_reduce, spla_Descriptor desc, spla_ScheduleTask* task);
+ SPLA_API spla_Status spla_Exec_v_count_mf(spla_Scalar r, spla_Vector v, spla_Descriptor desc, spla_ScheduleTask* task);
++SPLA_API spla_Status spla_Exec_v_find_min(spla_uint* idx, float* val, spla_Vector v, spla_Descriptor desc, spla_ScheduleTask* task);
+ 
+ //////////////////////////////////////////////////////////////////////////////////////
+ 
+diff --git a/include/spla/exec.hpp b/include/spla/exec.hpp
+index d24029f..a48b8dd 100644
+--- a/include/spla/exec.hpp
++++ b/include/spla/exec.hpp
+@@ -518,6 +518,14 @@ namespace spla {
+             ref_ptr<Descriptor>    desc     = ref_ptr<Descriptor>(),
+             ref_ptr<ScheduleTask>* task_hnd = nullptr);
+ 
++
++    SPLA_API Status exec_v_find_min(
++            uint*                  idx,
++            float*                 val,
++            ref_ptr<Vector>        v,
++            ref_ptr<Descriptor>    desc     = ref_ptr<Descriptor>(),
++            ref_ptr<ScheduleTask>* task_hnd = nullptr);
++
+ }// namespace spla
+ 
+ #endif//SPLA_EXEC_HPP
+diff --git a/src/binding/c_exec.cpp b/src/binding/c_exec.cpp
+index cda0ffe..7b4b3ba 100644
+--- a/src/binding/c_exec.cpp
++++ b/src/binding/c_exec.cpp
+@@ -102,4 +102,8 @@ spla_Status spla_Exec_v_reduce(spla_Scalar r, spla_Scalar s, spla_Vector v, spla
+ }
+ spla_Status spla_Exec_v_count_mf(spla_Scalar r, spla_Vector v, spla_Descriptor desc, spla_ScheduleTask* task) {
+     SPLA_WRAP_EXEC(exec_v_count_mf, AS_S(r), AS_V(v));
+-}
+\ No newline at end of file
++}
++
++spla_Status spla_Exec_v_find_min(uint* idx, float* val, spla_Vector v, spla_Descriptor desc, spla_ScheduleTask* task) {
++    SPLA_WRAP_EXEC(exec_v_find_min, idx, val, AS_V(v));
++}
+diff --git a/src/exec.cpp b/src/exec.cpp
+index d62647f..506dd93 100644
+--- a/src/exec.cpp
++++ b/src/exec.cpp
+@@ -405,4 +405,18 @@ namespace spla {
+         EXEC_OR_MAKE_TASK
+     }
+ 
+-}// namespace spla
+\ No newline at end of file
++    Status exec_v_find_min(
++            uint*                  idx,
++            float*                 val,
++            ref_ptr<Vector>        v,
++            ref_ptr<Descriptor>    desc,
++            ref_ptr<ScheduleTask>* task_hnd) {
++        auto task  = make_ref<ScheduleTask_v_find_min>();
++        task->idx  = idx;
++        task->val  = val;
++        task->v    = std::move(v);
++        task->desc = std::move(desc);
++        EXEC_OR_MAKE_TASK
++    }
++
++}// namespace spla
+diff --git a/src/opencl/cl_algo_registry.cpp b/src/opencl/cl_algo_registry.cpp
+index 8905e08..84cfb96 100644
+--- a/src/opencl/cl_algo_registry.cpp
++++ b/src/opencl/cl_algo_registry.cpp
+@@ -39,6 +39,7 @@
+ #include <opencl/cl_v_eadd.hpp>
+ #include <opencl/cl_v_eadd_fdb.hpp>
+ #include <opencl/cl_v_emult.hpp>
++#include <opencl/cl_v_find_min.hpp>
+ #include <opencl/cl_v_map.hpp>
+ #include <opencl/cl_v_reduce.hpp>
+ #include <opencl/cl_vxm.hpp>
+@@ -105,6 +106,9 @@ namespace spla {
+         g_registry->add(MAKE_KEY_CL_0("v_emult", INT), std::make_shared<Algo_v_emult_cl<T_INT>>());
+         g_registry->add(MAKE_KEY_CL_0("v_emult", UINT), std::make_shared<Algo_v_emult_cl<T_UINT>>());
+         g_registry->add(MAKE_KEY_CL_0("v_emult", FLOAT), std::make_shared<Algo_v_emult_cl<T_FLOAT>>());
++
++        // algorthm v_find_min
++        g_registry->add(MAKE_KEY_CL_0("v_find_min", FLOAT), std::make_shared<Algo_v_find_min_cl<T_FLOAT>>());
+     }
+ 
+ }// namespace spla
+diff --git a/src/opencl/cl_v_find_min.hpp b/src/opencl/cl_v_find_min.hpp
+new file mode 100644
+index 0000000..64758bf
+--- /dev/null
++++ b/src/opencl/cl_v_find_min.hpp
+@@ -0,0 +1,75 @@
++#ifndef SPLA_CL_V_FIND_MIN_HPP
++#define SPLA_CL_V_FIND_MIN_HPP
++
++#include <schedule/schedule_tasks.hpp>
++
++#include <core/dispatcher.hpp>
++#include <core/registry.hpp>
++#include <core/top.hpp>
++#include <core/tscalar.hpp>
++#include <core/ttype.hpp>
++#include <core/tvector.hpp>
++
++#include <opencl/cl_counter.hpp>
++#include <opencl/cl_formats.hpp>
++#include <opencl/cl_program_builder.hpp>
++
++#include <opencl/generated/auto_v_find_min.hpp>
++
++namespace spla {
++
++    template<typename T>
++    class Algo_v_find_min_cl final : public RegistryAlgo {
++    public:
++        ~Algo_v_find_min_cl() override = default;
++
++        std::string get_name() override {
++            return "v_find_min";
++        }
++
++        std::string get_description() override {
++            return "seq opencl vector find min";
++        }
++
++        Status execute(const DispatchContext& ctx) override {
++            auto                t = ctx.task.template cast_safe<ScheduleTask_v_find_min>();
++            ref_ptr<TVector<T>> v = t->v.template cast_safe<TVector<T>>();
++
++            v->validate_rw(FormatVector::AccDense);
++            const auto* p_cl_v = v->template get<CLDenseVec<T>>();
++
++            std::shared_ptr<CLProgram> program;
++            ensure_kernel(program);
++            auto* p_cl_acc = get_acc_cl();
++
++            cl::Buffer bidx(p_cl_acc->get_context(), CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR, sizeof(*t->idx), t->idx);
++            cl::Buffer bval(p_cl_acc->get_context(), CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR, sizeof(*t->val), t->val);
++
++            auto kernel = program->make_kernel("find_min");
++            kernel.setArg(0, bidx);
++            kernel.setArg(1, bval);
++            kernel.setArg(2, p_cl_v->Ax);
++            kernel.setArg(3, v->get_n_rows());
++            kernel.setArg(4, v->get_fill_value());
++
++            auto& queue = p_cl_acc->get_queue_default();
++            queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(1), cl::NDRange(1));
++            queue.finish();// this one's essential
++
++            return Status::Ok;
++        }
++
++        void ensure_kernel(std::shared_ptr<CLProgram>& program) {
++            CLProgramBuilder program_builder;
++            program_builder
++                    .set_name("v_find_min")
++                    .add_type("TYPE", get_ttype<T>().template as<Type>())
++                    .set_source(source_v_find_min)
++                    .acquire();
++            program = program_builder.get_program();
++        }
++    };
++
++}// namespace spla
++
++#endif
+diff --git a/src/opencl/generated/auto_v_find_min.hpp b/src/opencl/generated/auto_v_find_min.hpp
+new file mode 100644
+index 0000000..2d202cb
+--- /dev/null
++++ b/src/opencl/generated/auto_v_find_min.hpp
+@@ -0,0 +1,31 @@
++////////////////////////////////////////////////////////////////////
++// Copyright (c) 2021 - 2025 SparseLinearAlgebra
++// Autogenerated file, do not modify
++////////////////////////////////////////////////////////////////////
++
++#pragma once
++
++static const char source_v_find_min[] = R"(
++
++__kernel void find_min(__global uint*       g_idx,
++                       __global TYPE*       g_val,
++                       __global const TYPE* g_vx,
++                       const uint           n,
++                       const TYPE           fill) {
++
++    uint min_idx = 0;
++    TYPE min_val = g_vx[0];
++
++    for (uint i = 1; i < n; i += 1) {
++        TYPE val = g_vx[i];
++        if (val != fill && val < min_val) {
++            min_idx = i;
++            min_val = val;
++        }
++    }
++
++    *g_idx = min_idx;
++    *g_val = min_val;
++}
++
++)";
+\ No newline at end of file
+diff --git a/src/opencl/kernels/v_find_min.cl b/src/opencl/kernels/v_find_min.cl
+new file mode 100644
+index 0000000..b2e4508
+--- /dev/null
++++ b/src/opencl/kernels/v_find_min.cl
+@@ -0,0 +1,22 @@
++#include "common_def.cl"
++
++__kernel void find_min(__global uint*       g_idx,
++                       __global TYPE*       g_val,
++                       __global const TYPE* g_vx,
++                       const uint           n,
++                       const TYPE           fill) {
++
++    uint min_idx = 0;
++    TYPE min_val = g_vx[0];
++
++    for (uint i = 1; i < n; i += 1) {
++        TYPE val = g_vx[i];
++        if (val != fill && val < min_val) {
++            min_idx = i;
++            min_val = val;
++        }
++    }
++
++    *g_idx = min_idx;
++    *g_val = min_val;
++}
+diff --git a/src/schedule/schedule_tasks.cpp b/src/schedule/schedule_tasks.cpp
+index a65ef29..67fb69b 100644
+--- a/src/schedule/schedule_tasks.cpp
++++ b/src/schedule/schedule_tasks.cpp
+@@ -490,4 +490,25 @@ namespace spla {
+         return {r.as<Object>(), v.as<Object>()};
+     }
+ 
++    std::string ScheduleTask_v_find_min::get_name() {
++        return "v_find_min";
++    }
++    std::string ScheduleTask_v_find_min::get_key() {
++        std::stringstream key;
++        key << get_name()
++            << TYPE_KEY(v->get_type());
++
++        return key.str();
++    }
++    std::string ScheduleTask_v_find_min::get_key_full() {
++        std::stringstream key;
++        key << get_name()
++            << TYPE_KEY(v->get_type());
++
++        return key.str();
++    }
++    std::vector<ref_ptr<Object>> ScheduleTask_v_find_min::get_args() {
++        return {v.as<Object>()};
++    }
++
+ }// namespace spla
+diff --git a/src/schedule/schedule_tasks.hpp b/src/schedule/schedule_tasks.hpp
+index 49b0d87..d511316 100644
+--- a/src/schedule/schedule_tasks.hpp
++++ b/src/schedule/schedule_tasks.hpp
+@@ -464,6 +464,21 @@ namespace spla {
+         ref_ptr<Vector> v;
+     };
+ 
++
++    class ScheduleTask_v_find_min final : public ScheduleTaskBase {
++    public:
++        ~ScheduleTask_v_find_min() override = default;
++
++        std::string                  get_name() override;
++        std::string                  get_key() override;
++        std::string                  get_key_full() override;
++        std::vector<ref_ptr<Object>> get_args() override;
++
++        uint*           idx;
++        float*          val;
++        ref_ptr<Vector> v;
++    };
++
+     /**
+      * @}
+      */
+-- 
+2.51.0
+

@@ -8,41 +8,6 @@
 
 typedef spla_uint uint;
 
-struct node {
-    uint idx;
-    float val;
-};
-
-static struct node find_min(spla_Vector V)
-{
-    spla_MemView mkeys, mvals;
-    sp(spla_Vector_read(V, &mkeys, &mvals));
-    uint *keys;
-    sp(spla_MemView_get_buffer(mkeys, (void **)&keys));
-    float *vals;
-    sp(spla_MemView_get_buffer(mvals, (void **)&vals));
-
-    spla_size_t n;
-    sp(spla_MemView_get_size(mkeys, &n));
-    n /= sizeof(*keys);
-
-    if (!n) {
-        err("n = 0 in find_min");
-    }
-
-    uint idx_min = keys[0];
-    float val_min = vals[0];
-    for (uint idx = 1; idx < n; idx++) {
-        float val = vals[idx];
-        if (val < val_min) {
-            idx_min = keys[idx];
-            val_min = val;
-        }
-    }
-
-    return (struct node){ .idx = idx_min, .val = val_min };
-}
-
 // prim's MST algo on adjacency matrix of a graph.
 // returns total weight of resulting tree
 static float prim(spla_Matrix A, uint nrows, uint ncols)
@@ -82,13 +47,16 @@ static float prim(spla_Matrix A, uint nrows, uint ncols)
                              spla_OpBinary_FIRST_FLOAT(), NULL, NULL));
 
         // find node with cheapest edge connecting it. "add" this edge to MST
-        struct node cheapest_node = find_min(to_visit);
-        total_weight += cheapest_node.val;
-        sp(spla_Vector_set_float(not_visited, cheapest_node.idx, FILL_VALUE));
+        uint cheapest_idx;
+        float cheapest_val;
+        sp(spla_Exec_v_find_min(&cheapest_idx, &cheapest_val, to_visit, NULL,
+                                NULL));
+        total_weight += cheapest_val;
+        sp(spla_Vector_set_float(not_visited, cheapest_idx, FILL_VALUE));
         visited_count++;
 
         // find new neighbors. add them to `weights` to process later
-        sp(spla_Exec_m_extract_row(neighbors, A, cheapest_node.idx, NULL, NULL,
+        sp(spla_Exec_m_extract_row(neighbors, A, cheapest_idx, NULL, NULL,
                                    NULL));
 
         spla_Vector cur = weights;

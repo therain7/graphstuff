@@ -3,3 +3,5 @@
 0003-implement-extract_row-on-CSR-matrices-for-OpenCL-bac.patch
 0004-implement-emult-on-dense-vectors-for-OpenCL-backend.patch
 0005-implement-set_float-for-dense-OpenCL-vectors.patch
+
+0001-implement-a-janky-version-of-vector-find_min-as-Open.patch
