@@ -27,11 +27,10 @@ static void print_matrix(GrB_Matrix A, char *name)
 
 int main(int argc, char **argv)
 {
-    if (argc < 2) {
+    if (argc != 2) {
         err("invalid number of arguments");
     }
     char *path = *(++argv);
-    argc -= 2;
 
     FILE *f = fopen(path, "r");
     if (!f) {
@@ -53,12 +52,12 @@ int main(int argc, char **argv)
         err("rows (%lu) != cols (%lu) for the provided matrix", nrows, ncols);
     }
 
-    // parse source vector
+    // set every 2nd node as bfs source
+    GrB_Index nsrc = nrows / 2;
     GrB_Vector src;
-    gr(GrB_Vector_new(&src, GrB_UINT64, argc));
-    for (int i = 0; i < argc; i++) {
-        GrB_Index idx = strtoull(*(++argv), NULL, 10);
-        gr(GrB_Vector_setElement(src, idx, i));
+    gr(GrB_Vector_new(&src, GrB_UINT64, nsrc));
+    for (GrB_Index i = 0; i < nsrc; i += 1) {
+        gr(GrB_Vector_setElement(src, i * 2, i));
     }
 
     LAGraph_Graph G;
