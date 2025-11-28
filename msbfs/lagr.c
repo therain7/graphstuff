@@ -2,7 +2,7 @@
 #include <GraphBLAS.h>
 #include <common.h>
 
-static void print_matrix(GrB_Matrix A, char *name)
+__attribute__((unused)) static void print_matrix(GrB_Matrix A, char *name)
 {
     GrB_Index n;
     gr(GrB_Matrix_nvals(&n, A));
@@ -63,11 +63,14 @@ int main(int argc, char **argv)
     LAGraph_Graph G;
     la(LAGraph_New(&G, &A, LAGraph_ADJACENCY_UNDIRECTED, msg));
 
-    GrB_Matrix level;
-    la(LAGraph_MultiSourceBFS(&level, NULL, G, src, msg));
-    print_matrix(level, "level");
+    info("start algo");
+    GrB_Matrix parent;
+    la(LAGraph_MultiSourceBFS(NULL, &parent, G, src, msg));
+#ifdef DEBUG
+    print_matrix(parent, "parent");
+#endif
 
-    la(GrB_Matrix_free(&level));
+    la(GrB_Matrix_free(&parent));
     la(LAGraph_Delete(&G, msg));
     la(GrB_Vector_free(&src));
     la(LAGraph_Finalize(msg));

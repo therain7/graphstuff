@@ -32,7 +32,14 @@ static char msg[LAGRAPH_MSG_LEN];
         }                                                            \
     } while (0);
 
-static spla_Scalar fill;
+#define FILL_VALUE_FLOAT INFINITY
+#define FILL_VALUE_UINT UINT_MAX
+
+static spla_Type tfloat;
+static spla_Type tuint;
+
+static spla_Scalar fill_float;
+static spla_Scalar fill_uint;
 
 static void init_spla(void)
 {
@@ -44,8 +51,14 @@ static void init_spla(void)
     sp(spla_Library_get_accelerator_info(accel, 512));
     info("accelerator: %s", accel);
 
-    sp(spla_Scalar_make(&fill, spla_Type_FLOAT()));
-    sp(spla_Scalar_set_float(fill, INFINITY));
+    tfloat = spla_Type_FLOAT();
+    tuint = spla_Type_UINT();
+
+    sp(spla_Scalar_make(&fill_float, spla_Type_FLOAT()));
+    sp(spla_Scalar_set_float(fill_float, FILL_VALUE_FLOAT));
+
+    sp(spla_Scalar_make(&fill_uint, spla_Type_UINT()));
+    sp(spla_Scalar_set_uint(fill_uint, FILL_VALUE_UINT));
 }
 
 static void exit_spla(void)
@@ -53,45 +66,33 @@ static void exit_spla(void)
     spla_Library_finalize();
 }
 
-static spla_Vector make_vector(uint n)
+static spla_Vector make_vector(uint n, spla_Type type)
 {
     spla_Vector V;
-    sp(spla_Vector_make(&V, n, spla_Type_FLOAT()));
-    sp(spla_Vector_set_fill_value(V, fill));
+    sp(spla_Vector_make(&V, n, type));
+
+    if (type == tfloat) {
+        sp(spla_Vector_set_fill_value(V, fill_float));
+    } else if (type == tuint) {
+        sp(spla_Vector_set_fill_value(V, fill_uint));
+    }
+
     sp(spla_Vector_set_format(V, SPLA_FORMAT_VECTOR_ACC_DENSE));
     return V;
 }
 
-static spla_Matrix make_matrix(uint nrows, uint ncols)
+static spla_Matrix make_matrix(uint nrows, uint ncols, spla_Type type)
 {
     spla_Matrix M;
-    sp(spla_Matrix_make(&M, nrows, ncols, spla_Type_FLOAT()));
-    sp(spla_Matrix_set_fill_value(M, fill));
+    sp(spla_Matrix_make(&M, nrows, ncols, type));
+
+    if (type == tfloat) {
+        sp(spla_Matrix_set_fill_value(M, fill_float));
+    } else if (type == tuint) {
+        sp(spla_Matrix_set_fill_value(M, fill_uint));
+    }
+
     return M;
-}
-#endif
-
-#if defined GRAPHBLAS_H && defined SPLA_SPLA_C_H
-static void grb_to_spla(spla_Matrix out, GrB_Matrix A)
-{
-    GrB_Index nvals;
-    gr(GrB_Matrix_nvals(&nvals, A));
-
-    GrB_Index *Ai = malloc(nvals * sizeof(*Ai));
-    GrB_Index *Aj = malloc(nvals * sizeof(*Aj));
-    double *vals = malloc(nvals * sizeof(*vals));
-    if (!Ai || !Aj || !vals) {
-        err("failed to allocate memory");
-    }
-
-    gr(GrB_Matrix_extractTuples_FP64(Ai, Aj, vals, &nvals, A));
-    for (GrB_Index k = 0; k < nvals; k++) {
-        sp(spla_Matrix_set_float(out, Ai[k], Aj[k], vals[k]))
-    }
-
-    free(vals);
-    free(Aj);
-    free(Ai);
 }
 #endif
 

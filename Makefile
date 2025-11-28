@@ -1,5 +1,5 @@
 JOBS ?= $(shell nproc)
-CFLAGS := -Wall -Wextra -Werror -O2 -I. $(CFLAGS)
+CFLAGS := -Wall -Wextra -Werror -O3 -I. $(CFLAGS)
 BLD := build
 
 GRB_ROOT := vendor/GraphBLAS
@@ -11,7 +11,7 @@ LGR_DIST := $(LGR_ROOT)/dist
 SPLA_ROOT := vendor/spla
 SPLA_DIST := $(SPLA_ROOT)/build
 
-BINS := prim_lagr prim_spla msbfs_lagr
+BINS := prim_lagr prim_spla msbfs_lagr msbfs_spla
 
 .PHONY: build vendor
 build: $(addprefix $(BLD)/, $(BINS))
@@ -53,3 +53,6 @@ $(BLD)/prim_spla: prim/spla.c $(SPLA_DIST) $(GRB_DIST) $(LGR_DIST)
 
 $(BLD)/msbfs_lagr: msbfs/lagr.c $(GRB_DIST) $(LGR_DIST)
 	$(CC) $(CFLAGS) $< -o $@ $(LD_GRB_LGR)
+
+$(BLD)/msbfs_spla: msbfs/spla.c $(SPLA_DIST) $(GRB_DIST) $(LGR_DIST)
+	$(CC) $(CFLAGS) $< -o $@ $(LD_GRB_LGR) $(LD_SPLA)

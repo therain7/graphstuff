@@ -113,6 +113,7 @@ int main(int argc, char **argv)
     (void)fclose(f);
     la(LAGraph_Matrix_Print(A, LAGraph_SUMMARY, stdout, msg));
 
+    info("start algo");
     float weight = prim(A);
     info("total MST weight = %.2f\n", weight);
 
