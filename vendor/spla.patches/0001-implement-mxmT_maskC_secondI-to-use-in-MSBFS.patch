@@ -1,0 +1,461 @@
+From 0c91d56c0d3ec003a4b352503d594ef791b78fc3 Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Thu, 27 Nov 2025 21:53:35 +0300
+Subject: [PATCH 1/3] implement `mxmT_maskC_secondI` to use in MSBFS
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ include/spla.h                                |   1 +
+ include/spla/exec.hpp                         |   9 ++
+ src/binding/c_exec.cpp                        |   4 +
+ src/exec.cpp                                  |  18 +++
+ src/opencl/cl_algo_registry.cpp               |   6 +
+ src/opencl/cl_mxmT_maskC_secondI.hpp          | 130 ++++++++++++++++++
+ .../generated/auto_mxmT_maskC_secondI.hpp     |  72 ++++++++++
+ src/opencl/kernels/mxmT_maskC_secondI.cl      |  63 +++++++++
+ src/schedule/schedule_tasks.cpp               |  21 +++
+ src/schedule/schedule_tasks.hpp               |  16 +++
+ 10 files changed, 340 insertions(+)
+ create mode 100644 src/opencl/cl_mxmT_maskC_secondI.hpp
+ create mode 100644 src/opencl/generated/auto_mxmT_maskC_secondI.hpp
+ create mode 100644 src/opencl/kernels/mxmT_maskC_secondI.cl
+
+diff --git a/include/spla.h b/include/spla.h
+index 1415ecd..2488522 100644
+--- a/include/spla.h
++++ b/include/spla.h
+@@ -387,6 +387,7 @@ SPLA_API spla_Status spla_Exec_v_map(spla_Vector r, spla_Vector v, spla_OpUnary
+ SPLA_API spla_Status spla_Exec_v_reduce(spla_Scalar r, spla_Scalar s, spla_Vector v, spla_OpBinary op_reduce, spla_Descriptor desc, spla_ScheduleTask* task);
+ SPLA_API spla_Status spla_Exec_v_count_mf(spla_Scalar r, spla_Vector v, spla_Descriptor desc, spla_ScheduleTask* task);
+ SPLA_API spla_Status spla_Exec_v_find_min(spla_uint* idx, float* val, spla_Vector v, spla_Descriptor desc, spla_ScheduleTask* task);
++SPLA_API spla_Status spla_Exec_mxmT_maskC_secondI(spla_Matrix R, spla_Matrix mask, spla_Matrix A, spla_Matrix B, spla_uint* nvals, spla_Descriptor desc, spla_ScheduleTask* task);
+ 
+ //////////////////////////////////////////////////////////////////////////////////////
+ 
+diff --git a/include/spla/exec.hpp b/include/spla/exec.hpp
+index a48b8dd..97197d7 100644
+--- a/include/spla/exec.hpp
++++ b/include/spla/exec.hpp
+@@ -526,6 +526,15 @@ namespace spla {
+             ref_ptr<Descriptor>    desc     = ref_ptr<Descriptor>(),
+             ref_ptr<ScheduleTask>* task_hnd = nullptr);
+ 
++    SPLA_API Status exec_mxmT_maskC_secondI(
++            ref_ptr<Matrix>        R,
++            ref_ptr<Matrix>        mask,
++            ref_ptr<Matrix>        A,
++            ref_ptr<Matrix>        B,
++            uint*                  nvals,
++            ref_ptr<Descriptor>    desc,
++            ref_ptr<ScheduleTask>* task_hnd);
++
+ }// namespace spla
+ 
+ #endif//SPLA_EXEC_HPP
+diff --git a/src/binding/c_exec.cpp b/src/binding/c_exec.cpp
+index 7b4b3ba..8ef8bbf 100644
+--- a/src/binding/c_exec.cpp
++++ b/src/binding/c_exec.cpp
+@@ -107,3 +107,7 @@ spla_Status spla_Exec_v_count_mf(spla_Scalar r, spla_Vector v, spla_Descriptor d
+ spla_Status spla_Exec_v_find_min(uint* idx, float* val, spla_Vector v, spla_Descriptor desc, spla_ScheduleTask* task) {
+     SPLA_WRAP_EXEC(exec_v_find_min, idx, val, AS_V(v));
+ }
++
++spla_Status spla_Exec_mxmT_maskC_secondI(spla_Matrix R, spla_Matrix mask, spla_Matrix A, spla_Matrix B, spla_uint* nvals, spla_Descriptor desc, spla_ScheduleTask* task) {
++    SPLA_WRAP_EXEC(exec_mxmT_maskC_secondI, AS_M(R), AS_M(mask), AS_M(A), AS_M(B), nvals);
++}
+diff --git a/src/exec.cpp b/src/exec.cpp
+index 506dd93..00cd604 100644
+--- a/src/exec.cpp
++++ b/src/exec.cpp
+@@ -419,4 +419,22 @@ namespace spla {
+         EXEC_OR_MAKE_TASK
+     }
+ 
++    SPLA_API Status exec_mxmT_maskC_secondI(
++            ref_ptr<Matrix>        R,
++            ref_ptr<Matrix>        mask,
++            ref_ptr<Matrix>        A,
++            ref_ptr<Matrix>        B,
++            uint*                  nvals,
++            ref_ptr<Descriptor>    desc,
++            ref_ptr<ScheduleTask>* task_hnd) {
++        auto task   = make_ref<ScheduleTask_mxmT_maskC_secondI>();
++        task->R     = std::move(R);
++        task->mask  = std::move(mask);
++        task->A     = std::move(A);
++        task->B     = std::move(B);
++        task->nvals = nvals;
++        task->desc  = std::move(desc);
++        EXEC_OR_MAKE_TASK
++    }
++
+ }// namespace spla
+diff --git a/src/opencl/cl_algo_registry.cpp b/src/opencl/cl_algo_registry.cpp
+index 84cfb96..c43361d 100644
+--- a/src/opencl/cl_algo_registry.cpp
++++ b/src/opencl/cl_algo_registry.cpp
+@@ -32,6 +32,7 @@
+ 
+ #include <opencl/cl_m_extract_row.hpp>
+ #include <opencl/cl_m_reduce.hpp>
++#include <opencl/cl_mxmT_maskC_secondI.hpp>
+ #include <opencl/cl_mxmT_masked.hpp>
+ #include <opencl/cl_mxv.hpp>
+ #include <opencl/cl_v_assign.hpp>
+@@ -109,6 +110,11 @@ namespace spla {
+ 
+         // algorthm v_find_min
+         g_registry->add(MAKE_KEY_CL_0("v_find_min", FLOAT), std::make_shared<Algo_v_find_min_cl<T_FLOAT>>());
++
++        // algorthm mxmT_maskC_secondI
++        g_registry->add(MAKE_KEY_CL_0("mxmT_maskC_secondI", INT), std::make_shared<Algo_mxmT_maskC_secondI_cl<T_INT>>());
++        g_registry->add(MAKE_KEY_CL_0("mxmT_maskC_secondI", UINT), std::make_shared<Algo_mxmT_maskC_secondI_cl<T_UINT>>());
++        g_registry->add(MAKE_KEY_CL_0("mxmT_maskC_secondI", FLOAT), std::make_shared<Algo_mxmT_maskC_secondI_cl<T_FLOAT>>());
+     }
+ 
+ }// namespace spla
+diff --git a/src/opencl/cl_mxmT_maskC_secondI.hpp b/src/opencl/cl_mxmT_maskC_secondI.hpp
+new file mode 100644
+index 0000000..4e325f3
+--- /dev/null
++++ b/src/opencl/cl_mxmT_maskC_secondI.hpp
+@@ -0,0 +1,130 @@
++#ifndef SPLA_CL_MXMT_MASKC_SECONDI_HPP
++#define SPLA_CL_MXMT_MASKC_SECONDI_HPP
++
++#include <schedule/schedule_tasks.hpp>
++
++#include <core/dispatcher.hpp>
++#include <core/registry.hpp>
++#include <core/tmatrix.hpp>
++#include <core/top.hpp>
++#include <core/tscalar.hpp>
++#include <core/ttype.hpp>
++#include <core/tvector.hpp>
++
++#include <opencl/cl_counter.hpp>
++#include <opencl/cl_debug.hpp>
++#include <opencl/cl_formats.hpp>
++#include <opencl/cl_program_builder.hpp>
++
++#include <opencl/generated/auto_mxmT_maskC_secondI.hpp>
++
++namespace spla {
++
++    template<typename T>
++    class Algo_mxmT_maskC_secondI_cl final : public RegistryAlgo {
++    public:
++        ~Algo_mxmT_maskC_secondI_cl() override = default;
++
++        std::string get_name() override {
++            return "mxmT_maskC_secondI";
++        }
++
++        std::string get_description() override {
++            return "IDK";
++        }
++
++        Status execute(const DispatchContext& ctx) override {
++            TIME_PROFILE_SCOPE("opencl/mxmT_maskC_secondI");
++
++            auto t = ctx.task.template cast_safe<ScheduleTask_mxmT_maskC_secondI>();
++
++            ref_ptr<TMatrix<T>> R    = t->R.template cast_safe<TMatrix<T>>();
++            ref_ptr<TMatrix<T>> mask = t->mask.template cast_safe<TMatrix<T>>();
++            ref_ptr<TMatrix<T>> A    = t->A.template cast_safe<TMatrix<T>>();
++            ref_ptr<TMatrix<T>> B    = t->B.template cast_safe<TMatrix<T>>();
++
++            R->validate_wd(FormatMatrix::AccCsr);
++            mask->validate_rw(FormatMatrix::AccCsr);
++            A->validate_rw(FormatMatrix::AccCsr);
++            B->validate_rw(FormatMatrix::AccCsr);
++
++            std::shared_ptr<CLProgram> program;
++            ensure_kernel(program);
++
++            auto*       p_cl_R    = R->template get<CLCsr<T>>();
++            const auto* p_cl_mask = mask->template get<CLCsr<T>>();
++            const auto* p_cl_A    = A->template get<CLCsr<T>>();
++            const auto* p_cl_B    = B->template get<CLCsr<T>>();
++
++            if (p_cl_mask->values == 0) {
++                return Status::Ok;
++            }
++            if (p_cl_A->values == 0) {
++                return Status::Ok;
++            }
++            if (p_cl_B->values == 0) {
++                return Status::Ok;
++            }
++
++            auto* p_cl_acc = get_acc_cl();
++            auto& queue    = p_cl_acc->get_queue_default();
++
++            cl_csr_resize<T>(R->get_n_rows(), p_cl_mask->values, *p_cl_R);
++            queue.enqueueCopyBuffer(p_cl_mask->Ap, p_cl_R->Ap, 0, 0, sizeof(uint) * (R->get_n_rows() + 1));
++            queue.enqueueCopyBuffer(p_cl_mask->Aj, p_cl_R->Aj, 0, 0, sizeof(uint) * (p_cl_R->values));
++
++            CLCounterWrapper cl_nvals;
++            cl_nvals.set(queue, 0);
++
++            auto kernel = program->make_kernel("mxmT_maskC_secondI_csr");
++            kernel.setArg(0, p_cl_A->Ap);
++            kernel.setArg(1, p_cl_A->Aj);
++            kernel.setArg(2, p_cl_A->Ax);
++            kernel.setArg(3, p_cl_B->Ap);
++            kernel.setArg(4, p_cl_B->Aj);
++            kernel.setArg(5, p_cl_B->Ax);
++            kernel.setArg(6, p_cl_mask->Ap);
++            kernel.setArg(7, p_cl_mask->Aj);
++            kernel.setArg(8, p_cl_mask->Ax);
++            kernel.setArg(9, p_cl_R->Ax);
++            kernel.setArg(10, cl_nvals.buffer());
++            kernel.setArg(11, R->get_fill_value());
++            kernel.setArg(12, R->get_n_rows());
++
++            uint n_groups_to_dispatch = div_up_clamp(R->get_n_rows(), m_block_count, 1, 1024);
++
++            cl::NDRange exec_global(m_block_count * n_groups_to_dispatch, m_block_size);
++            cl::NDRange exec_local(m_block_count, m_block_size);
++            CL_DISPATCH_PROFILED("exec", queue, kernel, cl::NDRange(), exec_global, exec_local);
++
++            *t->nvals = cl_nvals.get(queue);
++            return Status::Ok;
++        }
++
++        void ensure_kernel(std::shared_ptr<CLProgram>& program) {
++            m_block_size  = get_acc_cl()->get_default_wgs();
++            m_block_count = 1;
++
++            assert(m_block_count >= 1);
++
++            CLProgramBuilder program_builder;
++            program_builder
++                    .set_name("mxmT_maskC_secondI")
++                    .add_define("WARP_SIZE", get_acc_cl()->get_wave_size())
++                    .add_define("BLOCK_SIZE", m_block_size)
++                    .add_define("BLOCK_COUNT", m_block_count)
++                    .add_type("TYPE", get_ttype<T>().template as<Type>())
++                    .set_source(source_mxmT_maskC_secondI)
++                    .acquire();
++
++            program = program_builder.get_program();
++        }
++
++    private:
++        uint m_block_size  = 0;
++        uint m_block_count = 0;
++    };
++
++}// namespace spla
++
++#endif
+diff --git a/src/opencl/generated/auto_mxmT_maskC_secondI.hpp b/src/opencl/generated/auto_mxmT_maskC_secondI.hpp
+new file mode 100644
+index 0000000..4647e8f
+--- /dev/null
++++ b/src/opencl/generated/auto_mxmT_maskC_secondI.hpp
+@@ -0,0 +1,72 @@
++////////////////////////////////////////////////////////////////////
++// Copyright (c) 2021 - 2025 SparseLinearAlgebra
++// Autogenerated file, do not modify
++////////////////////////////////////////////////////////////////////
++
++#pragma once
++
++static const char source_mxmT_maskC_secondI[] = R"(
++
++__kernel void mxmT_maskC_secondI_csr(__global const uint* g_Ap,
++                                     __global const uint* g_Aj,
++                                     __global const TYPE* g_Ax,
++                                     __global const uint* g_Bp,
++                                     __global const uint* g_Bj,
++                                     __global const TYPE* g_Bx,
++                                     __global const uint* g_maskp,
++                                     __global const uint* g_maskj,
++                                     __global const TYPE* g_maskx,
++                                     __global TYPE*       g_Rx,
++                                     __global uint*       g_nvals,
++                                     const TYPE           fill,
++                                     const uint           n) {
++    const uint lid     = get_local_id(1);   // thread id in a row
++    const uint lsize   = get_local_size(1); // size of local group
++    const uint gid     = get_global_id(0);  // id of row to touch
++    const uint gstride = get_global_size(0);// step between row ids
++
++    uint nvals = 0;
++    for (uint row_id = gid; row_id < n; row_id += gstride) {
++        const uint mask_start = g_maskp[row_id];
++        const uint mask_end   = g_maskp[row_id + 1];
++
++        const uint A_start = g_Ap[row_id];
++        const uint A_end   = g_Ap[row_id + 1];
++
++        for (uint mask_k = mask_start + lid; mask_k < mask_end; mask_k += lsize) {
++            const uint mask_j = g_maskj[mask_k];
++            const TYPE mask_x = g_maskx[mask_k];
++
++            TYPE r = fill;
++
++            if (mask_x == fill) {
++                const uint B_start = g_Bp[mask_j];
++                const uint B_end   = g_Bp[mask_j + 1];
++
++                uint A_it = A_start;
++                uint B_it = B_start;
++
++                while (A_it < A_end && B_it < B_end) {
++                    const uint A_j = g_Aj[A_it];
++                    const uint B_j = g_Bj[B_it];
++
++                    if (A_j == B_j && g_Ax[A_it] != fill && g_Bx[B_it] != fill) {
++                        r = B_j;
++                        ++nvals;
++                        break;
++                    } else if (A_j < B_j) {
++                        ++A_it;
++                    } else {
++                        ++B_it;
++                    }
++                }
++            }
++
++            g_Rx[mask_k] = r;
++        }
++    }
++
++    atomic_add(g_nvals, nvals);
++}
++
++)";
+\ No newline at end of file
+diff --git a/src/opencl/kernels/mxmT_maskC_secondI.cl b/src/opencl/kernels/mxmT_maskC_secondI.cl
+new file mode 100644
+index 0000000..c3e1484
+--- /dev/null
++++ b/src/opencl/kernels/mxmT_maskC_secondI.cl
+@@ -0,0 +1,63 @@
++#include "common_def.cl"
++
++__kernel void mxmT_maskC_secondI_csr(__global const uint* g_Ap,
++                                     __global const uint* g_Aj,
++                                     __global const TYPE* g_Ax,
++                                     __global const uint* g_Bp,
++                                     __global const uint* g_Bj,
++                                     __global const TYPE* g_Bx,
++                                     __global const uint* g_maskp,
++                                     __global const uint* g_maskj,
++                                     __global const TYPE* g_maskx,
++                                     __global TYPE*       g_Rx,
++                                     __global uint*       g_nvals,
++                                     const TYPE           fill,
++                                     const uint           n) {
++    const uint lid     = get_local_id(1);   // thread id in a row
++    const uint lsize   = get_local_size(1); // size of local group
++    const uint gid     = get_global_id(0);  // id of row to touch
++    const uint gstride = get_global_size(0);// step between row ids
++
++    uint nvals = 0;
++    for (uint row_id = gid; row_id < n; row_id += gstride) {
++        const uint mask_start = g_maskp[row_id];
++        const uint mask_end   = g_maskp[row_id + 1];
++
++        const uint A_start = g_Ap[row_id];
++        const uint A_end   = g_Ap[row_id + 1];
++
++        for (uint mask_k = mask_start + lid; mask_k < mask_end; mask_k += lsize) {
++            const uint mask_j = g_maskj[mask_k];
++            const TYPE mask_x = g_maskx[mask_k];
++
++            TYPE r = fill;
++
++            if (mask_x == fill) {
++                const uint B_start = g_Bp[mask_j];
++                const uint B_end   = g_Bp[mask_j + 1];
++
++                uint A_it = A_start;
++                uint B_it = B_start;
++
++                while (A_it < A_end && B_it < B_end) {
++                    const uint A_j = g_Aj[A_it];
++                    const uint B_j = g_Bj[B_it];
++
++                    if (A_j == B_j && g_Ax[A_it] != fill && g_Bx[B_it] != fill) {
++                        r = B_j;
++                        ++nvals;
++                        break;
++                    } else if (A_j < B_j) {
++                        ++A_it;
++                    } else {
++                        ++B_it;
++                    }
++                }
++            }
++
++            g_Rx[mask_k] = r;
++        }
++    }
++
++    atomic_add(g_nvals, nvals);
++}
+diff --git a/src/schedule/schedule_tasks.cpp b/src/schedule/schedule_tasks.cpp
+index 67fb69b..beaa8a5 100644
+--- a/src/schedule/schedule_tasks.cpp
++++ b/src/schedule/schedule_tasks.cpp
+@@ -511,4 +511,25 @@ namespace spla {
+         return {v.as<Object>()};
+     }
+ 
++    std::string ScheduleTask_mxmT_maskC_secondI::get_name() {
++        return "mxmT_maskC_secondI";
++    }
++    std::string ScheduleTask_mxmT_maskC_secondI::get_key() {
++        std::stringstream key;
++        key << get_name()
++            << TYPE_KEY(R->get_type());
++
++        return key.str();
++    }
++    std::string ScheduleTask_mxmT_maskC_secondI::get_key_full() {
++        std::stringstream key;
++        key << get_name()
++            << TYPE_KEY(R->get_type());
++
++        return key.str();
++    }
++    std::vector<ref_ptr<Object>> ScheduleTask_mxmT_maskC_secondI::get_args() {
++        assert(false);
++    }
++
+ }// namespace spla
+diff --git a/src/schedule/schedule_tasks.hpp b/src/schedule/schedule_tasks.hpp
+index d511316..fc59943 100644
+--- a/src/schedule/schedule_tasks.hpp
++++ b/src/schedule/schedule_tasks.hpp
+@@ -479,6 +479,22 @@ namespace spla {
+         ref_ptr<Vector> v;
+     };
+ 
++    class ScheduleTask_mxmT_maskC_secondI final : public ScheduleTaskBase {
++    public:
++        ~ScheduleTask_mxmT_maskC_secondI() override = default;
++
++        std::string                  get_name() override;
++        std::string                  get_key() override;
++        std::string                  get_key_full() override;
++        std::vector<ref_ptr<Object>> get_args() override;
++
++        ref_ptr<Matrix> R;
++        ref_ptr<Matrix> mask;
++        ref_ptr<Matrix> A;
++        ref_ptr<Matrix> B;
++        uint*           nvals;
++    };
++
+     /**
+      * @}
+      */
+-- 
+2.51.0
+

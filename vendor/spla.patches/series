@@ -1,7 +1,10 @@
 0001-query-all-CL_DEVICE_TYPE_ALL-OpenCL-devices.patch
-0002-fix-CPU-emult-on-COO-vectors.patch
 0003-implement-extract_row-on-CSR-matrices-for-OpenCL-bac.patch
 0004-implement-emult-on-dense-vectors-for-OpenCL-backend.patch
 0005-implement-set_float-for-dense-OpenCL-vectors.patch
 
 0001-implement-a-janky-version-of-vector-find_min-as-Open.patch
+
+0001-implement-mxmT_maskC_secondI-to-use-in-MSBFS.patch
+0002-implement-SECOND_NMAX_UINT-second-but-not-UINT_MAX-o.patch
+0003-hack-eadd-so-msbfs-works.patch

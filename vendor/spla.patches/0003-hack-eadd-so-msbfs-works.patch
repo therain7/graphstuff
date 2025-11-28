@@ -1,0 +1,45 @@
+From a1f15c71b005b1196810f84e72b53553c17a9d22 Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Fri, 28 Nov 2025 01:01:09 +0300
+Subject: [PATCH 3/3] hack eadd so msbfs works
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ src/cpu/cpu_m_eadd.hpp | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/src/cpu/cpu_m_eadd.hpp b/src/cpu/cpu_m_eadd.hpp
+index 37ff4c0..bd930b0 100644
+--- a/src/cpu/cpu_m_eadd.hpp
++++ b/src/cpu/cpu_m_eadd.hpp
+@@ -121,27 +121,21 @@ namespace spla {
+                         ++iter_B;
+                     }
+ 
+-                    if (r != fill_value_R) {
+                         row_R.emplace_back(j, r);
+                         p_R->values += 1;
+-                    }
+                 }
+                 while (iter_A != end_A) {
+                     const auto [i_A, x_A] = *iter_A;
+                     auto r                = x_A;
+-                    if (r != fill_value_R) {
+                         row_R.emplace_back(i_A, r);
+                         p_R->values += 1;
+-                    }
+                     ++iter_A;
+                 }
+                 while (iter_B != end_B) {
+                     const auto [i_B, x_B] = *iter_B;
+                     auto r                = x_B;
+-                    if (r != fill_value_R) {
+                         row_R.emplace_back(i_B, r);
+                         p_R->values += 1;
+-                    }
+                     ++iter_B;
+                 }
+             }
+-- 
+2.51.0
+

@@ -1,0 +1,97 @@
+From 3bbeb6b0b4eaef8962011718a5e8e529abeb7fa1 Mon Sep 17 00:00:00 2001
+From: Andrei <therain.i@yahoo.com>
+Date: Thu, 27 Nov 2025 23:28:42 +0300
+Subject: [PATCH 2/3] implement `SECOND_NMAX_UINT` "second but not UINT_MAX"
+ operator
+
+Signed-off-by: Andrei <therain.i@yahoo.com>
+---
+ include/spla.h       | 2 ++
+ include/spla/op.hpp  | 1 +
+ src/binding/c_op.cpp | 4 +++-
+ src/op.cpp           | 5 ++++-
+ 4 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/include/spla.h b/include/spla.h
+index 2488522..b9d4bbc 100644
+--- a/include/spla.h
++++ b/include/spla.h
+@@ -215,6 +215,8 @@ SPLA_API spla_OpBinary spla_OpBinary_FIRST_FLOAT();
+ SPLA_API spla_OpBinary spla_OpBinary_SECOND_INT();
+ SPLA_API spla_OpBinary spla_OpBinary_SECOND_UINT();
+ SPLA_API spla_OpBinary spla_OpBinary_SECOND_FLOAT();
++SPLA_API spla_OpBinary spla_OpBinary_SECOND_NMAX_UINT();
++
+ SPLA_API spla_OpBinary spla_OpBinary_BONE_INT();
+ SPLA_API spla_OpBinary spla_OpBinary_BONE_UINT();
+ SPLA_API spla_OpBinary spla_OpBinary_BONE_FLOAT();
+diff --git a/include/spla/op.hpp b/include/spla/op.hpp
+index 96dd168..7bb777e 100644
+--- a/include/spla/op.hpp
++++ b/include/spla/op.hpp
+@@ -156,6 +156,7 @@ namespace spla {
+     SPLA_API extern ref_ptr<OpBinary> SECOND_INT;
+     SPLA_API extern ref_ptr<OpBinary> SECOND_UINT;
+     SPLA_API extern ref_ptr<OpBinary> SECOND_FLOAT;
++    SPLA_API extern ref_ptr<OpBinary> SECOND_NMAX_UINT;
+ 
+     SPLA_API extern ref_ptr<OpBinary> BONE_INT;
+     SPLA_API extern ref_ptr<OpBinary> BONE_UINT;
+diff --git a/src/binding/c_op.cpp b/src/binding/c_op.cpp
+index e3202e4..4f798d4 100644
+--- a/src/binding/c_op.cpp
++++ b/src/binding/c_op.cpp
+@@ -82,6 +82,8 @@ spla_OpBinary spla_OpBinary_FIRST_FLOAT() { return as_ptr<spla_OpBinary_t>(spla:
+ spla_OpBinary spla_OpBinary_SECOND_INT() { return as_ptr<spla_OpBinary_t>(spla::SECOND_INT.ref_and_get()); }
+ spla_OpBinary spla_OpBinary_SECOND_UINT() { return as_ptr<spla_OpBinary_t>(spla::SECOND_UINT.ref_and_get()); }
+ spla_OpBinary spla_OpBinary_SECOND_FLOAT() { return as_ptr<spla_OpBinary_t>(spla::SECOND_FLOAT.ref_and_get()); }
++spla_OpBinary spla_OpBinary_SECOND_NMAX_UINT() { return as_ptr<spla_OpBinary_t>(spla::SECOND_NMAX_UINT.ref_and_get()); }
++
+ spla_OpBinary spla_OpBinary_BONE_INT() { return as_ptr<spla_OpBinary_t>(spla::BONE_INT.ref_and_get()); }
+ spla_OpBinary spla_OpBinary_BONE_UINT() { return as_ptr<spla_OpBinary_t>(spla::BONE_UINT.ref_and_get()); }
+ spla_OpBinary spla_OpBinary_BONE_FLOAT() { return as_ptr<spla_OpBinary_t>(spla::BONE_FLOAT.ref_and_get()); }
+@@ -127,4 +129,4 @@ spla_OpSelect spla_OpSelect_ALWAYS_UINT() { return as_ptr<spla_OpSelect_t>(spla:
+ spla_OpSelect spla_OpSelect_ALWAYS_FLOAT() { return as_ptr<spla_OpSelect_t>(spla::ALWAYS_FLOAT.ref_and_get()); }
+ spla_OpSelect spla_OpSelect_NEVER_INT() { return as_ptr<spla_OpSelect_t>(spla::NEVER_INT.ref_and_get()); }
+ spla_OpSelect spla_OpSelect_NEVER_UINT() { return as_ptr<spla_OpSelect_t>(spla::NEVER_UINT.ref_and_get()); }
+-spla_OpSelect spla_OpSelect_NEVER_FLOAT() { return as_ptr<spla_OpSelect_t>(spla::NEVER_FLOAT.ref_and_get()); }
+\ No newline at end of file
++spla_OpSelect spla_OpSelect_NEVER_FLOAT() { return as_ptr<spla_OpSelect_t>(spla::NEVER_FLOAT.ref_and_get()); }
+diff --git a/src/op.cpp b/src/op.cpp
+index a1bca75..8fb00c6 100644
+--- a/src/op.cpp
++++ b/src/op.cpp
+@@ -30,6 +30,7 @@
+ #include "spla/op.hpp"
+ 
+ #include <algorithm>
++#include <climits>
+ #include <cmath>
+ 
+ namespace spla {
+@@ -95,6 +96,7 @@ namespace spla {
+     ref_ptr<OpBinary> SECOND_INT;
+     ref_ptr<OpBinary> SECOND_UINT;
+     ref_ptr<OpBinary> SECOND_FLOAT;
++    ref_ptr<OpBinary> SECOND_NMAX_UINT;
+ 
+     ref_ptr<OpBinary> BONE_INT;
+     ref_ptr<OpBinary> BONE_UINT;
+@@ -214,6 +216,7 @@ namespace spla {
+         DECL_OP_BIN_S(SECOND_INT, SECOND, T_INT, { return b; });
+         DECL_OP_BIN_S(SECOND_UINT, SECOND, T_UINT, { return b; });
+         DECL_OP_BIN_S(SECOND_FLOAT, SECOND, T_FLOAT, { return b; });
++        DECL_OP_BIN_S(SECOND_NMAX_UINT, SECOND_NMAX, T_UINT, { return b != UINT_MAX ? b : a; });
+ 
+         DECL_OP_BIN_S(BONE_INT, BONE, T_INT, { return 1; });
+         DECL_OP_BIN_S(BONE_UINT, BONE, T_UINT, { return 1; });
+@@ -341,4 +344,4 @@ namespace spla {
+         return op.as<OpSelect>();
+     }
+ 
+-}// namespace spla
+\ No newline at end of file
++}// namespace spla
+-- 
+2.51.0
+
